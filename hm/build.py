@@ -1,6 +1,4 @@
-import os
-import subprocess
-import sys
+import os, subprocess, sys
 from pathlib import Path
 
 def find_msvc():
@@ -50,6 +48,15 @@ def check_nasm():
         print("Download NASM from: https://www.nasm.us/")
         return False
 
+def get_windows_sdk_version(sdk_root):
+    include_path = os.path.join(sdk_root, "Include")
+    if os.path.exists(include_path):
+        versions = [d for d in os.listdir(include_path) 
+                   if os.path.isdir(os.path.join(include_path, d))]
+        if versions:
+            return sorted(versions)[-1] 
+    return None
+
 def build_project():
     if not check_nasm():
         sys.exit(1)
@@ -60,9 +67,17 @@ def build_project():
         os.makedirs('build')
     
     sdk_root = r"C:\Program Files (x86)\Windows Kits\10"
-    sdk_version = "10.0.26100.0"
+    sdk_version = get_windows_sdk_version(sdk_root)
+    if not sdk_version:
+        print("Error: Could not find Windows SDK installation")
+        sys.exit(1)
+    
     um_path = os.path.join(sdk_root, "Include", sdk_version, "um")
     shared_path = os.path.join(sdk_root, "Include", sdk_version, "shared")
+    
+    if not os.path.exists(um_path) or not os.path.exists(shared_path):
+        print(f"Error: Windows SDK paths not found:\n  {um_path}\n  {shared_path}")
+        sys.exit(1)
     
     try:
         print("Compiling C code...")
@@ -72,7 +87,7 @@ def build_project():
             'src\\unwinder.c',
             '/I', um_path,
             '/I', shared_path
-        ], env=env, check=True, shell=True)
+        ], env=env, check=True)  
         
         print("Assembling ASM code...")
         subprocess.run([
@@ -81,14 +96,36 @@ def build_project():
             '-o', 'build\\unwinder_helpers.obj'
         ], check=True)
         
+        subprocess.run([
+            'nasm', '-f', 'win64', 
+            'src\\test_push_nonvol.asm', 
+            '-o', 'build\\test_push_nonvol.obj'
+        ], check=True)
+        
+        # Add compilation for test_and_unwind.asm
+        subprocess.run([
+            'nasm', '-f', 'win64', 
+            'src\\test_and_unwind.asm', 
+            '-o', 'build\\test_and_unwind.obj'
+        ], check=True)
+        
         print("Linking...")
+        lib_path = os.path.join(sdk_root, "Lib", sdk_version, "um", "x64")
         subprocess.run([
             'link', '/DLL', '/OUT:build\\unwinder.dll',
+            '/LIBPATH:' + lib_path,
             'build\\unwinder.obj', 'build\\unwinder_helpers.obj',
-            'kernel32.lib', 'dbghelp.lib'
-        ], env=env, check=True, shell=True)
+            'build\\test_push_nonvol.obj', 'build\\test_and_unwind.obj',  # Add test_and_unwind.obj here
+            'kernel32.lib', 'dbghelp.lib',
+            '/DEF:src\\unwinder.def'
+        ], env=env, check=True)  
         
         print("Build completed successfully!")
+        
+        print("\nVerifying exports...")
+        subprocess.run([
+            'dumpbin', '/EXPORTS', 'build\\unwinder.dll'
+        ], env=env, check=True)
         
     except subprocess.CalledProcessError as e:
         print(f"Build failed with error: {e}")
