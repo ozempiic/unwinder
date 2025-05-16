@@ -102,7 +102,6 @@ def build_project():
             '-o', 'build\\test_push_nonvol.obj'
         ], check=True)
         
-        # Add compilation for test_and_unwind.asm
         subprocess.run([
             'nasm', '-f', 'win64', 
             'src\\test_and_unwind.asm', 
@@ -115,7 +114,7 @@ def build_project():
             'link', '/DLL', '/OUT:build\\unwinder.dll',
             '/LIBPATH:' + lib_path,
             'build\\unwinder.obj', 'build\\unwinder_helpers.obj',
-            'build\\test_push_nonvol.obj', 'build\\test_and_unwind.obj',  # Add test_and_unwind.obj here
+            'build\\test_push_nonvol.obj', 'build\\test_and_unwind.obj',  
             'kernel32.lib', 'dbghelp.lib',
             '/DEF:src\\unwinder.def'
         ], env=env, check=True)  
